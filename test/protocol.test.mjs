@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { startStubHomebox } from "./helpers/stub-homebox.mjs";
 import { startShim, writeConfig } from "./helpers/shim.mjs";
 
-const EXPECTED_TOOL_COUNT = 16;
+const EXPECTED_TOOL_COUNT = 20;
 
 describe("JSON-RPC protocol surface", () => {
   let homebox;
@@ -28,7 +28,7 @@ describe("JSON-RPC protocol surface", () => {
     assert.equal(res.body.tools, EXPECTED_TOOL_COUNT);
   });
 
-  it("tools/list returns exactly 16 well-formed tools", async () => {
+  it("tools/list returns exactly 20 well-formed tools", async () => {
     const res = await shim.rpc({ jsonrpc: "2.0", id: 1, method: "tools/list" });
     assert.equal(res.status, 200);
     const tools = res.body.result.tools;

@@ -11,7 +11,7 @@
   <Project>https://github.com/BusinessNone/HomeBoxMCP</Project>
   <Overview>
     Model Context Protocol (MCP) server for Homebox, the self-hosted home inventory.
-    Exposes 16 tools over stateless streamable HTTP so an MCP client — Claude or any other —
+    Exposes 20 tools over stateless streamable HTTP so an MCP client — Claude or any other —
     can search your inventory, create and move items and locations, manage tags, and attach
     receipts, manuals and photos in plain language.
 

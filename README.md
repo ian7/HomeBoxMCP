@@ -11,7 +11,7 @@ purchase with its receipt attached, or reorganize a whole closet, in plain langu
 "Move everything on Shelf B to the garage overflow bin."
 ```
 
-Sixteen tools, one file, **zero runtime dependencies** — just Node 22 and `node:http`.
+Twenty tools, one file, **zero runtime dependencies** — just Node 22 and `node:http`.
 Drop it behind Docker and forget about it.
 
 ## Why this one
@@ -88,7 +88,7 @@ Or skip the file entirely and use `HOMEBOX_URL` plus `HOMEBOX_API_KEY` — or
 If you expose HomeBoxMCP beyond your own machine, set `MCP_AUTH_TOKEN`. Clients may send it
 as `Authorization: Bearer <token>`, `X-MCP-Token`, or `X-Homebox-MCP-Token`.
 
-## The 16 tools
+## The 20 tools
 
 **Read** — `search_entities`, `entity_tree`, `get_entity`, `list_tags`,
 `list_entity_types`, `get_stats`
@@ -98,6 +98,9 @@ as `Authorization: Bearer <token>`, `X-MCP-Token`, or `X-Homebox-MCP-Token`.
 
 **Attachments** — `list_inbox`, `upload_attachment`, `delete_attachment`,
 `link_external_attachment`
+
+**Maintenance** — `list_maintenance`, `log_maintenance`, `update_maintenance`,
+`delete_maintenance`
 
 ## Attachments, and why there's an inbox
 

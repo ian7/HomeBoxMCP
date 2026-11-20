@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 
-const VERSION = "1.2.0";
+const VERSION = "1.3.0";
 const CONFIG_PATH = process.env.CONFIG_PATH || "/config/config.json";
 const PORT = Number(process.env.PORT || 3334);
 const MAX_REQUEST_BYTES = Number(process.env.MAX_REQUEST_BYTES || 4_000_000);
@@ -328,6 +328,52 @@ async function createEntity(isLocation, a) {
   }
 }
 
+
+// ── Maintenance log ──────────────────────────────────────────────────────────
+// Dates arrive as YYYY-MM-DD; Homebox wants RFC3339.
+const rfc3339 = (d) => {
+  const t = String(d).trim();
+  return t.includes("T") ? t : `${t}T00:00:00Z`;
+};
+
+const MAINT_STATUSES = ["scheduled", "completed", "both"];
+
+function maintenanceSummary(e) {
+  const out = {
+    id: e.id,
+    name: e.name,
+    description: e.description || undefined,
+    completedDate: (e.completedDate || "").slice(0, 10) || undefined,
+    scheduledDate: (e.scheduledDate || "").slice(0, 10) || undefined,
+    cost: e.cost,
+  };
+  // The global /maintenance listing carries the owning entity.
+  const item = e.itemName ?? e.entityName ?? e.itemID ?? e.entityId;
+  if (item) out.item = item;
+  return Object.fromEntries(Object.entries(out).filter(([, v]) => v !== undefined && v !== null));
+}
+
+// There is no GET /maintenance/{id}, so an entry can only be found via the global list.
+async function findMaintenanceEntry(entryId) {
+  const all = (await api("GET", `/maintenance${qs({ status: "both" })}`)) ?? [];
+  const found = all.find((e) => e.id === entryId);
+  if (!found) {
+    throw new Error(`no maintenance entry with id '${entryId}' (see list_maintenance)`);
+  }
+  return found;
+}
+
+// Updates are a full PUT, so re-send current values for anything not patched.
+function toMaintenancePayload(current, patch) {
+  return {
+    name: patch.name ?? current.name,
+    description: patch.description ?? (current.description || ""),
+    completedDate: patch.completedDate ? rfc3339(patch.completedDate) : current.completedDate || "",
+    scheduledDate: patch.scheduledDate ? rfc3339(patch.scheduledDate) : current.scheduledDate || "",
+    // The API's cost field is string-typed.
+    cost: patch.cost !== undefined ? String(patch.cost) : String(current.cost || "0"),
+  };
+}
 
 // ── Attachments ──────────────────────────────────────────────────────────────
 // Homebox takes attachments as multipart/form-data on POST /entities/{id}/attachments.
@@ -660,6 +706,90 @@ const TOOLS = [
         attachment_type: a.attachmentType || "attachment",
       }),
   },
+  {
+    name: "list_maintenance",
+    description:
+      "List maintenance-log entries for one item, or across the whole inventory when id is omitted (\"what maintenance is due?\"). status is scheduled (upcoming), completed, or both (default).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: S("Entity ID; omit to list across all items"),
+        status: { type: "string", enum: MAINT_STATUSES, description: "Default: both" },
+      },
+    },
+    run: async (a) => {
+      const status = a.status ?? "both";
+      if (!MAINT_STATUSES.includes(status)) {
+        throw new Error(`status must be one of: ${MAINT_STATUSES.join(", ")}`);
+      }
+      const path = a.id ? `/entities/${a.id}/maintenance` : "/maintenance";
+      const entries = (await api("GET", `${path}${qs({ status })}`)) ?? [];
+      return entries.map(maintenanceSummary);
+    },
+  },
+  {
+    name: "log_maintenance",
+    description:
+      "Add a maintenance-log entry to an item, e.g. \"changed the mower oil today\" (completedDate) or \"sharpen blades in spring\" (scheduledDate). Dates are YYYY-MM-DD. Returns the new entry's id.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        id: S("Entity ID of the item"),
+        name: S("What was (or will be) done"),
+        description: S("Details"),
+        completedDate: S("YYYY-MM-DD, when it was done"),
+        scheduledDate: S("YYYY-MM-DD, when it is due"),
+        cost: N("Cost"),
+      },
+      required: ["id", "name"],
+    },
+    run: async (a) => {
+      const body = { name: a.name };
+      if (a.description !== undefined) body.description = a.description;
+      if (a.completedDate) body.completedDate = rfc3339(a.completedDate);
+      if (a.scheduledDate) body.scheduledDate = rfc3339(a.scheduledDate);
+      if (a.cost !== undefined) body.cost = String(a.cost);
+      const created = await api("POST", `/entities/${a.id}/maintenance`, body);
+      return maintenanceSummary(created ?? {});
+    },
+  },
+  {
+    name: "update_maintenance",
+    description:
+      "Edit a maintenance entry (ids come from list_maintenance), e.g. mark a scheduled entry done by setting completedDate. Only the fields you pass change; the rest are preserved.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        entryId: S("Maintenance entry ID"),
+        name: S("New name"),
+        description: S("New description"),
+        completedDate: S("YYYY-MM-DD"),
+        scheduledDate: S("YYYY-MM-DD"),
+        cost: N("Cost"),
+      },
+      required: ["entryId"],
+    },
+    run: async (a) => {
+      const { entryId, ...patch } = a;
+      const current = await findMaintenanceEntry(entryId);
+      const body = toMaintenancePayload(current, patch);
+      const updated = await api("PUT", `/maintenance/${entryId}`, body);
+      return maintenanceSummary(updated ?? { id: entryId, ...body });
+    },
+  },
+  {
+    name: "delete_maintenance",
+    description: "Permanently delete one maintenance entry. Entry IDs come from list_maintenance.",
+    inputSchema: {
+      type: "object",
+      properties: { entryId: S("Maintenance entry ID") },
+      required: ["entryId"],
+    },
+    run: async (a) => {
+      await api("DELETE", `/maintenance/${a.entryId}`);
+      return { deleted: a.entryId };
+    },
+  },
 ];
 
 const BY_NAME = new Map(TOOLS.map((t) => [t.name, t]));
@@ -685,7 +815,7 @@ async function handleRpc(msg) {
       capabilities: { tools: {} },
       serverInfo: { name: "homeboxmcp", version: VERSION },
       instructions:
-        "Homebox inventory. Call entity_tree first to discover location IDs, then create_item with parentId set.",
+        "Homebox inventory. Call entity_tree first to discover location IDs, then create_item with parentId set. Maintenance history lives in list_maintenance / log_maintenance.",
     });
   }
   if (method === "tools/list") return reply({ tools: PUBLIC });
